@@ -1,3 +1,5 @@
+> **Note to readers:** On December 1, 2020, the Libra Association was renamed to Diem Association. The project repos are in the process of being migrated. All projects will remain available for use here until the migration to a new GitHub Organization is complete.
+
 ## Libra Canonical Serialization (LCS)
 
 LCS defines a deterministic means for translating a message or data structure into bytes
