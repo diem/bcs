@@ -1,10 +1,10 @@
 [package]
-name = "libra-canonical-serialization"
-version = "0.1.0"
-authors = ["Libra Association <opensource@libra.org>"]
-description = "Libra Canonical Serialization (LCS)"
-documentation = "https://docs.rs/libra-canonical-serialization"
-repository = "https://github.com/libra/lcs"
+name = "bcs"
+version = "0.1.1"
+authors = ["Diem <opensource@diem.com>"]
+description = "Binary Canonical Serialization (BCS)"
+repository = "https://github.com/diem/bcs"
+homepage = "https://diem.com"
 readme = "README.md"
 license = "Apache-2.0"
 edition = "2018"
@@ -19,5 +19,5 @@ proptest = "0.10.1"
 proptest-derive = "0.2.0"
 
 [[bench]]
-name = "lcs_bench"
+name = "bcs_bench"
 harness = false

@@ -1,10 +1,10 @@
-// Copyright (c) The Libra Core Contributors
+// Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::error::{Error, Result};
 use serde::{ser, Serialize};
 
-/// Serialize the given data structure as a `Vec<u8>` of LCS.
+/// Serialize the given data structure as a `Vec<u8>` of BCS.
 ///
 /// Serialization can fail if `T`'s implementation of `Serialize` decides to
 /// fail, if `T` contains sequences which are longer than `MAX_SEQUENCE_LENGTH`,
@@ -14,7 +14,7 @@ use serde::{ser, Serialize};
 /// # Examples
 ///
 /// ```
-/// use libra_canonical_serialization::to_bytes;
+/// use bcs::to_bytes;
 /// use serde::Serialize;
 ///
 /// #[derive(Serialize)]
@@ -97,7 +97,7 @@ pub fn is_human_readable() -> bool {
     ser::Serializer::is_human_readable(&serializer)
 }
 
-/// Serialization implementation for LCS
+/// Serialization implementation for BCS
 struct Serializer<'a, W> {
     output: &'a mut W,
     max_remaining_depth: usize,
@@ -107,7 +107,7 @@ impl<'a, W> Serializer<'a, W>
 where
     W: std::io::Write,
 {
-    /// Creates a new `Serializer` which will emit LCS.
+    /// Creates a new `Serializer` which will emit BCS.
     fn new(output: &'a mut W, max_remaining_depth: usize) -> Self {
         Self {
             output,
@@ -292,7 +292,7 @@ where
 
     // The start of the sequence, each value, and the end are three separate
     // method calls. This one is responsible only for serializing the start,
-    // which for LCS is either nothing for fixed structures or for variable
+    // which for BCS is either nothing for fixed structures or for variable
     // length structures, the length encoded as a u32.
     fn serialize_seq(mut self, len: Option<usize>) -> Result<Self::SerializeSeq> {
         if let Some(len) = len {
@@ -354,7 +354,7 @@ where
         Ok(self)
     }
 
-    // LCS is not a human readable format
+    // BCS is not a human readable format
     fn is_human_readable(&self) -> bool {
         false
     }
