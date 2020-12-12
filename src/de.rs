@@ -1,4 +1,4 @@
-// Copyright (c) The Libra Core Contributors
+// Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::error::{Error, Result};
@@ -7,13 +7,13 @@ use std::convert::TryFrom;
 
 /// Deserializes a `&[u8]` into a type.
 ///
-/// This function will attempt to interpret `bytes` as the LCS serialized form of `T` and
+/// This function will attempt to interpret `bytes` as the BCS serialized form of `T` and
 /// deserialize `T` from `bytes`.
 ///
 /// # Examples
 ///
 /// ```
-/// use libra_canonical_serialization::from_bytes;
+/// use bcs::from_bytes;
 /// use serde::Deserialize;
 ///
 /// #[derive(Deserialize)]
@@ -53,7 +53,7 @@ where
     deserializer.end().map(move |_| t)
 }
 
-/// Deserialization implementation for LCS
+/// Deserialization implementation for BCS
 struct Deserializer<'de> {
     input: &'de [u8],
     max_remaining_depth: usize,
@@ -196,7 +196,7 @@ impl<'de> Deserializer<'de> {
 impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     type Error = Error;
 
-    // LCS is not a self-describing format so we can't implement `deserialize_any`
+    // BCS is not a self-describing format so we can't implement `deserialize_any`
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -438,7 +438,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         r
     }
 
-    // LCS does not utilize identifiers, so throw them away
+    // BCS does not utilize identifiers, so throw them away
     fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -446,7 +446,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         self.deserialize_bytes(_visitor)
     }
 
-    // LCS is not a self-describing format so we can't implement `deserialize_ignored_any`
+    // BCS is not a self-describing format so we can't implement `deserialize_ignored_any`
     fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -454,7 +454,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         Err(Error::NotSupported("deserialize_ignored_any"))
     }
 
-    // LCS is not a human readable format
+    // BCS is not a human readable format
     fn is_human_readable(&self) -> bool {
         false
     }

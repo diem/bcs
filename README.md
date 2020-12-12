@@ -1,13 +1,13 @@
 > **Note to readers:** On December 1, 2020, the Libra Association was renamed to Diem Association. The project repos are in the process of being migrated. All projects will remain available for use here until the migration to a new GitHub Organization is complete.
 
-## Libra Canonical Serialization (LCS)
+## Binary Canonical Serialization (BCS)
 
-LCS defines a deterministic means for translating a message or data structure into bytes
+BCS defines a deterministic means for translating a message or data structure into bytes
 irrespective of platform, architecture, or programming language.
 
 ### Background
 
-In Libra, participants pass around messages or data structures that often times need to be
+In Diem, participants pass around messages or data structures that often times need to be
 signed by a prover and verified by one or more verifiers. Serialization in this context refers
 to the process of converting a message into a byte array. Many serialization approaches support
 loose standards such that two implementations can produce two different byte streams that would
@@ -21,12 +21,12 @@ serialized bytes or risk losing the ability to verify messages. This creates a b
 participants to maintain both a copy of the serialized bytes and the deserialized message often
 leading to confusion about safety and correctness. While there exist a handful of existing
 deterministic serialization formats, there is no obvious choice. To address this, we propose
-Libra Canonical Serialization that defines a deterministic means for translating a message into
+Diem Canonical Serialization that defines a deterministic means for translating a message into
 bytes and back again.
 
 ### Specification
 
-LCS supports the following data types:
+BCS supports the following data types:
 
 * Booleans
 * Signed 8-bit, 16-bit, 32-bit, 64-bit, and 128-bit integers
@@ -42,20 +42,20 @@ LCS supports the following data types:
 
 ### General structure
 
-LCS is not a self-describing format and as such, in order to deserialize a message, one must
+BCS is not a self-describing format and as such, in order to deserialize a message, one must
 know the message type and layout ahead of time.
 
 Unless specified, all numbers are stored in little endian, two's complement format.
 
-### Recursion and Depth of LCS Data
+### Recursion and Depth of BCS Data
 
 Recursive data-structures (e.g. trees) are allowed. However, because of the possibility of stack
-overflow during (de)serialization, the *container depth* of any valid LCS data cannot exceed the constant
+overflow during (de)serialization, the *container depth* of any valid BCS data cannot exceed the constant
 `MAX_CONTAINER_DEPTH`. Formally, we define *container depth* as the number of structs and enums traversed
 during (de)serialization.
 
 This definition aims to minimize the number of operations while ensuring that
-(de)serialization of a known LCS format cannot cause arbitrarily large stack allocations.
+(de)serialization of a known BCS format cannot cause arbitrarily large stack allocations.
 
 As an example, if `v1` and `v2` are values of depth `n1` and `n2`,
 * a struct value `Foo { v1, v2 }` has depth `1 + max(n1, n2)`;
@@ -81,7 +81,7 @@ All string and integer values have depths `0`.
 
 #### ULEB128-Encoded Integers
 
-The LCS format also uses the [ULEB128 encoding](https://en.wikipedia.org/wiki/LEB128) internally
+The BCS format also uses the [ULEB128 encoding](https://en.wikipedia.org/wiki/LEB128) internally
 to represent unsigned 32-bit integers in two cases where small values are usually expected:
 (1) lengths of variable-length sequences and (2) tags of enum values (see the corresponding
 sections below).
@@ -99,7 +99,7 @@ In general, a ULEB128 encoding consists of a little-endian sequence of base-128 
 digits. Each digit is completed into a byte by setting the highest bit to 1, except for the
 last (highest-significance) digit whose highest bit is set to 0.
 
-In LCS, the result of decoding ULEB128 bytes is required to fit into a 32-bit unsigned
+In BCS, the result of decoding ULEB128 bytes is required to fit into a 32-bit unsigned
 integer and be in canonical form. For instance, the following values are rejected:
 * `[808080808001]` (2^36) is too large.
 * `[8080808010]` (2^33) is too large.
@@ -107,7 +107,7 @@ integer and be in canonical form. For instance, the following values are rejecte
 
 #### Optional Data
 
-Optional or nullable data either exists in its full representation or does not. LCS represents
+Optional or nullable data either exists in its full representation or does not. BCS represents
 this as a single byte representing the presence `0x01` or absence `0x00` of data. If the data
 is present then the serialized form of that data follows. For example:
 
@@ -121,9 +121,9 @@ assert_eq!(to_bytes(&no_data)?, vec![0]);
 
 #### Fixed and Variable Length Sequences
 
-Sequences can be made of up of any LCS supported types (even complex structures) but all
+Sequences can be made of up of any BCS supported types (even complex structures) but all
 elements in the sequence must be of the same type. If the length of a sequence is fixed and
-well known then LCS represents this as just the concatenation of the serialized form of each
+well known then BCS represents this as just the concatenation of the serialized form of each
 individual element in the sequence. If the length of the sequence can be variable, then the
 serialized sequence is length prefixed with a ULEB128-encoded unsigned integer indicating
 the number of elements in the sequence. All variable length sequences must be
@@ -142,7 +142,7 @@ assert_eq!(to_bytes(&large_variable_length)?, vec![0x8f, 0x4a]);
 
 #### Strings
 
-Only valid UTF-8 Strings are supported. LCS serializes such strings as a variable length byte
+Only valid UTF-8 Strings are supported. BCS serializes such strings as a variable length byte
 sequence, i.e. length prefixed with a ULEB128-encoded unsigned integer followed by the byte
 representation of the string.
 
@@ -161,12 +161,12 @@ assert_eq!(to_bytes(&utf8_str)?, expecting);
 Tuples are typed composition of objects: `(Type0, Type1)`
 
 Tuples are considered a fixed length sequence where each element in the sequence can be a
-different type supported by LCS. Each element of a tuple is serialized in the order it is
+different type supported by BCS. Each element of a tuple is serialized in the order it is
 defined within the tuple, i.e. [tuple.0, tuple.2].
 
 ```rust
-let tuple = (-1i8, "libra");
-let expecting = vec![0xFF, 5, b'l', b'i', b'b', b'r', b'a'];
+let tuple = (-1i8, "diem");
+let expecting = vec![0xFF, 4, b'd', b'i', b'e', b'm'];
 assert_eq!(to_bytes(&tuple)?, expecting);
 ```
 
@@ -175,7 +175,7 @@ assert_eq!(to_bytes(&tuple)?, expecting);
 
 Structures are fixed length sequences consisting of fields with potentially different types.
 Each field within a struct is serialized in the order specified by the canonical structure
-definition. Structs can exist within other structs and as such, LCS recurses into each struct
+definition. Structs can exist within other structs and as such, BCS recurses into each struct
 and serializes them in order. There are no labels in the serialized format, the struct ordering
 defines the organization within the serialization stream.
 
@@ -214,9 +214,9 @@ assert_eq!(w_bytes, expecting);
 #### Externally Tagged Enumerations
 
 An enumeration is typically represented as a type that can take one of potentially many
-different variants. In LCS, each variant is mapped to a variant index, a ULEB128-encoded 32-bit unsigned
+different variants. In BCS, each variant is mapped to a variant index, a ULEB128-encoded 32-bit unsigned
 integer, followed by serialized data if the type has an associated value. An
-associated type can be any LCS supported type. The variant index is determined based on the
+associated type can be any BCS supported type. The variant index is determined based on the
 ordering of the variants in the canonical enum definition, where the first variant has an index
 of `0`, the second an index of `1`, etc.
 
@@ -241,7 +241,7 @@ If you need to serialize a C-style enum, you should use a primitive integer type
 #### Maps (Key / Value Stores)
 
 Maps are represented as a variable-length, sorted sequence of (Key, Value) tuples. Keys must be
-unique and the tuples sorted by increasing lexicographical order on the LCS bytes of each key.
+unique and the tuples sorted by increasing lexicographical order on the BCS bytes of each key.
 The representation is otherwise similar to that of a variable-length sequence. In particular,
 it is preceded by the number of tuples, encoded in ULEB128.
 
@@ -258,7 +258,7 @@ assert_eq!(to_bytes(&map)?, to_bytes(&expecting)?);
 
 ### Backwards compatibility
 
-Complex types dependent upon the specification in which they are used. LCS does not provide
+Complex types dependent upon the specification in which they are used. BCS does not provide
 direct provisions for versioning or backwards / forwards compatibility. A change in an objects
 structure could prevent historical clients from understanding new clients and vice-versa.
 
