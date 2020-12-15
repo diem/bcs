@@ -1,3 +1,6 @@
+[![Build Status](https://github.com/diem/bcs/workflows/CI/badge.svg)](https://circleci.com/gh/diem/bcs/tree/master)
+[![License](https://img.shields.io/badge/license-Apache-green.svg)](LICENSE)
+
 {{readme}}
 
 ## Contributing
