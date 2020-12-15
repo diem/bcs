@@ -1,30 +1,47 @@
-> **Note to readers:** On December 1, 2020, the Libra Association was renamed to Diem Association. The project repos are in the process of being migrated. All projects will remain available for use here until the migration to a new GitHub Organization is complete.
-
 ## Binary Canonical Serialization (BCS)
 
-BCS defines a deterministic means for translating a message or data structure into bytes
-irrespective of platform, architecture, or programming language.
+BCS (formerly "Libra Canonical Serialization" or LCS) is a serialization format developed
+in the context of the [Diem](https://diem.com) blockchain.
 
-### Background
+BCS was designed with the following main goals in mind:
+* provide good performance and concise (binary) representations;
+* support a rich set of data types commonly used in Rust;
+* enforce canonical serialization, meaning that every value of a given type should have
+a single valid representation.
 
-In Diem, participants pass around messages or data structures that often times need to be
-signed by a prover and verified by one or more verifiers. Serialization in this context refers
-to the process of converting a message into a byte array. Many serialization approaches support
-loose standards such that two implementations can produce two different byte streams that would
-represent the same, identical message. While for many applications, non-deterministic
-serialization causes no issues, it does so for applications using serialization for
-cryptographic purposes. For example, given a signature and a message, a verifier may not unable
-to produce the same serialized byte array constructed by the prover when the prover signed the
-message resulting in a non-verifiable message. In other words, to ensure message verifiability
-when using non-deterministic serialization, participants must either retain the original
-serialized bytes or risk losing the ability to verify messages. This creates a burden requiring
-participants to maintain both a copy of the serialized bytes and the deserialized message often
-leading to confusion about safety and correctness. While there exist a handful of existing
-deterministic serialization formats, there is no obvious choice. To address this, we propose
-Diem Canonical Serialization that defines a deterministic means for translating a message into
-bytes and back again.
+BCS also aims to mitigate the consequence of malicious inputs by enforcing well-defined limits
+on large or nested containers during (de)serialization.
 
-### Specification
+### Rust Implementation
+
+This crate provides a Rust implementation of BCS as an encoding format for the [Serde library](https://serde.rs).
+As such, this implementation covers most data types supported by Serde -- including user-defined structs,
+tagged variants (Rust enums), tuples, and maps -- excluding floats, single unicode characters (char), and sets.
+
+BCS is also available in other programming languages, thanks to the separate project [serde-reflection](https://github.com/novifinancial/serde-reflection).
+
+### Application to Cryptography
+
+The BCS format guarantees canonical serialization, meaning that for any given data type, there
+is a one-to-one correspondance between in-memory values and valid byte representations.
+
+In the context of a cryptographic application, canonical serialization has several benefits:
+* It provides a natural and reliable way to associate in-memory values to cryptographic hashes.
+* It allows the signature of a message to be defined equivalently as the signature of the serialized bytes or as the signature of the in-memory value.
+
+Note that BCS ensures canonical serialization for each data type separately. The data type of a serialized value
+must be enforced by the application itself. This requirement is typically fulfilled
+using unique hash seeds for each data type. (See [Diem's cryptographic library](https://github.com/diem/diem/blob/master/crypto/crypto/src/hash.rs) for an example.)
+
+### Backwards Compatibility
+
+By design, BCS does not provide implicit versioning or backwards/forwards compatibility, therefore
+applications must carefully plan in advance for adhoc extension points:
+* Enums may be used for explicit versioning and backward compatibility (e.g. extensible query interfaces).
+* In some cases, data fields of type `Vec<u8>` may also be added to allow (future) unknown payloads
+in serialized form.
+
+### Detailed Specifications
 
 BCS supports the following data types:
 
@@ -40,14 +57,12 @@ BCS supports the following data types:
 * Externally tagged enumerations (aka "enums")
 * Maps
 
-### General structure
-
-BCS is not a self-describing format and as such, in order to deserialize a message, one must
+BCS is not a self-describing format. As such, in order to deserialize a message, one must
 know the message type and layout ahead of time.
 
 Unless specified, all numbers are stored in little endian, two's complement format.
 
-### Recursion and Depth of BCS Data
+#### Recursion and Depth of BCS Data
 
 Recursive data-structures (e.g. trees) are allowed. However, because of the possibility of stack
 overflow during (de)serialization, the *container depth* of any valid BCS data cannot exceed the constant
@@ -67,17 +82,17 @@ All string and integer values have depths `0`.
 
 #### Booleans and Integers
 
-|Type                       |Original data          |Hex representation |Serialized format  |
-|---                        |---                    |---                |---                |
-|Boolean                    |True / False           |0x01 / 0x00        |[01] / [00]        |
-|8-bit signed integer       |-1                     |0xFF               |[FF]               |
-|8-bit unsigned integer     |1                      |0x01               |[01]               |
-|16-bit signed integer      |-4660                  |0xEDCC             |[CCED]             |
-|16-bit unsigned integer    |4660                   |0x1234             |[3412]             |
-|32-bit signed integer      |-305419896             |0xEDCBA988         |[88A9CBED]         |
-|32-bit unsigned integer    |305419896              |0x12345678         |[78563412]         |
-|64-bit signed integer      |-1311768467750121216   |0xEDCBA98754321100 |[0011325487A9CBED] |
-|64-bit unsigned integer    |1311768467750121216    |0x12345678ABCDEF00 |[00EFCDAB78563412] |
+|Type                       |Original data          |Hex representation |Serialized bytes        |
+|---                        |---                    |---                |---                     |
+|Boolean                    |True / False           |0x01 / 0x00        |01 / 00                 |
+|8-bit signed integer       |-1                     |0xFF               |FF                      |
+|8-bit unsigned integer     |1                      |0x01               |01                      |
+|16-bit signed integer      |-4660                  |0xEDCC             |CC ED                   |
+|16-bit unsigned integer    |4660                   |0x1234             |34 12                   |
+|32-bit signed integer      |-305419896             |0xEDCBA988         |88 A9 CB ED             |
+|32-bit unsigned integer    |305419896              |0x12345678         |78 56 34 12             |
+|64-bit signed integer      |-1311768467750121216   |0xEDCBA98754321100 |00 11 32 54 87 A9 CB ED |
+|64-bit unsigned integer    |1311768467750121216    |0x12345678ABCDEF00 |00 EF CD AB 78 56 34 12 |
 
 #### ULEB128-Encoded Integers
 
@@ -86,14 +101,14 @@ to represent unsigned 32-bit integers in two cases where small values are usuall
 (1) lengths of variable-length sequences and (2) tags of enum values (see the corresponding
 sections below).
 
-|Type                       |Original data          |Hex representation |Serialized format  |
+|Type                       |Original data          |Hex representation |Serialized bytes   |
 |---                        |---                    |---                |---                |
-|ULEB128-encoded u32-integer|2^0 = 1                |0x00000001         |[01]               |
-|                           |2^7 = 128              |0x00000080         |[8001]             |
-|                           |2^14 = 16384           |0x00004000         |[808001]           |
-|                           |2^21 = 2097152         |0x00200000         |[80808001]         |
-|                           |2^28 = 268435456       |0x10000000         |[8080808001]       |
-|                           |9487                   |0x0000250f         |[8f4a]             |
+|ULEB128-encoded u32-integer|2^0 = 1                |0x00000001         |01                 |
+|                           |2^7 = 128              |0x00000080         |80 01              |
+|                           |2^14 = 16384           |0x00004000         |80 80 01           |
+|                           |2^21 = 2097152         |0x00200000         |80 80 80 01        |
+|                           |2^28 = 268435456       |0x10000000         |80 80 80 80 01     |
+|                           |9487                   |0x0000250f         |8f 4a              |
 
 In general, a ULEB128 encoding consists of a little-endian sequence of base-128 (7-bit)
 digits. Each digit is completed into a byte by setting the highest bit to 1, except for the
@@ -101,9 +116,9 @@ last (highest-significance) digit whose highest bit is set to 0.
 
 In BCS, the result of decoding ULEB128 bytes is required to fit into a 32-bit unsigned
 integer and be in canonical form. For instance, the following values are rejected:
-* `[808080808001]` (2^36) is too large.
-* `[8080808010]` (2^33) is too large.
-* `[8000]` is not a minimal encoding of 0.
+* 80 80 80 80 80 01 (2^36) is too large.
+* 80 80 80 80 10 (2^33) is too large.
+* 80 00 is not a minimal encoding of 0.
 
 #### Optional Data
 
@@ -180,12 +195,14 @@ and serializes them in order. There are no labels in the serialized format, the 
 defines the organization within the serialization stream.
 
 ```rust
+#[derive(Serialize)]
 struct MyStruct {
     boolean: bool,
     bytes: Vec<u8>,
     label: String,
 }
 
+#[derive(Serialize)]
 struct Wrapper {
     inner: MyStruct,
     name: String,
@@ -221,6 +238,7 @@ ordering of the variants in the canonical enum definition, where the first varia
 of `0`, the second an index of `1`, etc.
 
 ```rust
+#[derive(Serialize)]
 enum E {
     Variant0(u16),
     Variant1(u8),
@@ -255,12 +273,6 @@ let expecting = vec![(b'a', b'b'), (b'c', b'd'), (b'e', b'f')];
 
 assert_eq!(to_bytes(&map)?, to_bytes(&expecting)?);
 ```
-
-### Backwards compatibility
-
-Complex types dependent upon the specification in which they are used. BCS does not provide
-direct provisions for versioning or backwards / forwards compatibility. A change in an objects
-structure could prevent historical clients from understanding new clients and vice-versa.
 
 ## Contributing
 
