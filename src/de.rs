@@ -517,7 +517,7 @@ impl<'de, 'a> de::MapAccess<'de> for MapDeserializer<'a, 'de> {
         match self.remaining.checked_sub(1) {
             None => Ok(None),
             Some(remaining) => {
-                let previous_input_slice = &self.de.input[..];
+                let previous_input_slice = self.de.input;
                 let key_value = seed.deserialize(&mut *self.de)?;
                 let key_len = previous_input_slice
                     .len()
