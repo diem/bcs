@@ -58,7 +58,7 @@ where
 /// Same as `to_bytes` but write directly into an `std::io::Write` object.
 pub fn serialize_into<W, T>(write: &mut W, value: &T) -> Result<()>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
     T: ?Sized + Serialize,
 {
     let serializer = Serializer::new(write, crate::MAX_CONTAINER_DEPTH);
@@ -98,14 +98,14 @@ pub fn is_human_readable() -> bool {
 }
 
 /// Serialization implementation for BCS
-struct Serializer<'a, W> {
+struct Serializer<'a, W: ?Sized> {
     output: &'a mut W,
     max_remaining_depth: usize,
 }
 
 impl<'a, W> Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     /// Creates a new `Serializer` which will emit BCS.
     fn new(output: &'a mut W, max_remaining_depth: usize) -> Self {
@@ -150,7 +150,7 @@ where
 
 impl<'a, W> ser::Serializer for Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;
@@ -362,7 +362,7 @@ where
 
 impl<'a, W> ser::SerializeSeq for Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;
@@ -381,7 +381,7 @@ where
 
 impl<'a, W> ser::SerializeTuple for Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;
@@ -400,7 +400,7 @@ where
 
 impl<'a, W> ser::SerializeTupleStruct for Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;
@@ -419,7 +419,7 @@ where
 
 impl<'a, W> ser::SerializeTupleVariant for Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;
@@ -437,13 +437,13 @@ where
 }
 
 #[doc(hidden)]
-struct MapSerializer<'a, W> {
+struct MapSerializer<'a, W: ?Sized> {
     serializer: Serializer<'a, W>,
     entries: Vec<(Vec<u8>, Vec<u8>)>,
     next_key: Option<Vec<u8>>,
 }
 
-impl<'a, W> MapSerializer<'a, W> {
+impl<'a, W: ?Sized> MapSerializer<'a, W> {
     fn new(serializer: Serializer<'a, W>) -> Self {
         MapSerializer {
             serializer,
@@ -455,7 +455,7 @@ impl<'a, W> MapSerializer<'a, W> {
 
 impl<'a, W> ser::SerializeMap for MapSerializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;
@@ -516,7 +516,7 @@ where
 
 impl<'a, W> ser::SerializeStruct for Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;
@@ -535,7 +535,7 @@ where
 
 impl<'a, W> ser::SerializeStructVariant for Serializer<'a, W>
 where
-    W: std::io::Write,
+    W: ?Sized + std::io::Write,
 {
     type Ok = ();
     type Error = Error;

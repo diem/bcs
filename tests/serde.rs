@@ -262,7 +262,7 @@ fn uleb_encoding_and_variant() {
     enum Test {
         One,
         Two,
-    };
+    }
 
     let valid_variant = vec![1];
     from_bytes::<Test>(&valid_variant).unwrap();
