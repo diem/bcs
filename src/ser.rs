@@ -260,10 +260,11 @@ where
 
     fn serialize_unit_variant(
         mut self,
-        _name: &'static str,
+        name: &'static str,
         variant_index: u32,
         _variant: &'static str,
     ) -> Result<()> {
+        self.enter_named_container(name)?;
         self.output_variant_index(variant_index)
     }
 
