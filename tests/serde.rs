@@ -570,26 +570,38 @@ fn serde_known_vector() {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-struct List {
-    next: Option<(usize, Box<List>)>,
+struct List<T> {
+    value: T,
+    next: Option<Box<List<T>>>,
 }
-
-impl List {
-    fn empty() -> Self {
-        Self { next: None }
+impl<T> List<T> {
+    fn head(value: T) -> Self {
+        Self { value, next: None }
     }
 
-    fn cons(value: usize, tail: List) -> Self {
+    fn cons(value: T, tail: List<T>) -> Self {
         Self {
-            next: Some((value, Box::new(tail))),
+            value,
+            next: Some(Box::new(tail)),
         }
     }
+}
+impl<T: Clone> List<T> {
+    fn repeat(len: usize, value: T) -> Self {
+        if len == 0 {
+            Self::head(value)
+        } else {
+            Self::cons(value.clone(), Self::repeat(len - 1, value))
+        }
+    }
+}
 
+impl List<usize> {
     fn integers(len: usize) -> Self {
         if len == 0 {
-            Self::empty()
+            Self::head(0)
         } else {
-            Self::cons(len - 1, Self::integers(len - 1))
+            Self::cons(len, Self::integers(len - 1))
         }
     }
 }
@@ -601,31 +613,30 @@ fn test_recursion_limit() {
     assert_eq!(
         b1,
         vec![
-            1, 3, 0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-            0, 0, 0, 0, 0, 0, 0, 0
+            4, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0,
+            0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ]
     );
-    assert_eq!(from_bytes::<List>(&b1).unwrap(), l1);
+    assert_eq!(from_bytes::<List<_>>(&b1).unwrap(), l1);
 
     let l2 = List::integers(MAX_CONTAINER_DEPTH - 1);
     let b2 = to_bytes(&l2).unwrap();
-    assert_eq!(from_bytes::<List>(&b2).unwrap(), l2);
-
+    assert_eq!(from_bytes::<List<_>>(&b2).unwrap(), l2);
     let l3 = List::integers(MAX_CONTAINER_DEPTH);
     assert_eq!(
         to_bytes(&l3),
         Err(Error::ExceededContainerDepthLimit("List"))
     );
-    let mut b3 = vec![1, 243, 1, 0, 0, 0, 0, 0, 0];
+    let mut b3 = vec![244, 1, 0, 0, 0, 0, 0, 0, 1];
     b3.extend(b2);
     assert_eq!(
-        from_bytes::<List>(&b3),
+        from_bytes::<List<usize>>(&b3),
         Err(Error::ExceededContainerDepthLimit("List"))
     );
 
     let b2_pair = to_bytes(&(&l2, &l2)).unwrap();
     assert_eq!(
-        from_bytes::<(List, List)>(&b2_pair).unwrap(),
+        from_bytes::<(List<_>, List<_>)>(&b2_pair).unwrap(),
         (l2.clone(), l2.clone())
     );
     assert_eq!(
@@ -639,5 +650,33 @@ fn test_recursion_limit() {
     assert_eq!(
         to_bytes(&(&l3, &l3)),
         Err(Error::ExceededContainerDepthLimit("List"))
+    );
+}
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+enum EnumA {
+    ValueA,
+}
+
+#[test]
+fn test_recursion_limit_enum() {
+    let l1 = List::repeat(6, EnumA::ValueA);
+    let b1 = to_bytes(&l1).unwrap();
+    assert_eq!(b1, vec![0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0],);
+    assert_eq!(from_bytes::<List<_>>(&b1).unwrap(), l1);
+
+    let l2 = List::repeat(MAX_CONTAINER_DEPTH - 2, EnumA::ValueA);
+    let b2 = to_bytes(&l2).unwrap();
+    assert_eq!(from_bytes::<List<_>>(&b2).unwrap(), l2);
+
+    let l3 = List::repeat(MAX_CONTAINER_DEPTH - 1, EnumA::ValueA);
+    assert_eq!(
+        to_bytes(&l3),
+        Err(Error::ExceededContainerDepthLimit("EnumA"))
+    );
+    let mut b3 = vec![0, 1];
+    b3.extend(b2);
+    assert_eq!(
+        from_bytes::<List<EnumA>>(&b3),
+        Err(Error::ExceededContainerDepthLimit("EnumA"))
     );
 }
