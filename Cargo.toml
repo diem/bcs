@@ -10,7 +10,7 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
-thiserror = "1.0.24"
+thiserror = "1.0.37"
 serde = { version = "1.0.117", features = ["derive"] }
 
 [dev-dependencies]
