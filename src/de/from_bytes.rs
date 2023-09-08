@@ -1,9 +1,7 @@
-// Copyright (c) The Diem Core Contributors
-// SPDX-License-Identifier: Apache-2.0
-
 use crate::error::{Error, Result};
 use serde::de::{self, Deserialize, DeserializeSeed, IntoDeserializer, Visitor};
-use std::convert::TryFrom;
+
+use super::BcsDeserializer;
 
 /// Deserializes a `&[u8]` into a type.
 ///
@@ -53,6 +51,29 @@ where
     deserializer.end().map(move |_| t)
 }
 
+impl<'de> BcsDeserializer for Deserializer<'de> {
+    fn next(&mut self) -> Result<u8> {
+        let byte = self.peek()?;
+        self.input = &self.input[1..];
+        Ok(byte)
+    }
+
+    fn max_remaining_depth(&mut self) -> usize {
+        self.max_remaining_depth
+    }
+
+    fn max_remaining_depth_mut(&mut self) -> &mut usize {
+        &mut self.max_remaining_depth
+    }
+
+    fn fill_slice(&mut self, slice: &mut [u8]) -> Result<()> {
+        for byte in slice {
+            *byte = self.next()?;
+        }
+        Ok(())
+    }
+}
+
 /// Deserialization implementation for BCS
 struct Deserializer<'de> {
     input: &'de [u8],
@@ -86,110 +107,16 @@ impl<'de> Deserializer<'de> {
         self.input.first().copied().ok_or(Error::Eof)
     }
 
-    fn next(&mut self) -> Result<u8> {
-        let byte = self.peek()?;
-        self.input = &self.input[1..];
-        Ok(byte)
+    fn parse_string_borrowed(&mut self) -> Result<&'de str> {
+        let slice = self.parse_bytes_borrowed()?;
+        std::str::from_utf8(slice).map_err(|_| Error::Utf8)
     }
 
-    fn parse_bool(&mut self) -> Result<bool> {
-        let byte = self.next()?;
-
-        match byte {
-            0 => Ok(false),
-            1 => Ok(true),
-            _ => Err(Error::ExpectedBoolean),
-        }
-    }
-
-    fn fill_slice(&mut self, slice: &mut [u8]) -> Result<()> {
-        for byte in slice {
-            *byte = self.next()?;
-        }
-        Ok(())
-    }
-
-    fn parse_u8(&mut self) -> Result<u8> {
-        self.next()
-    }
-
-    fn parse_u16(&mut self) -> Result<u16> {
-        let mut le_bytes = [0; 2];
-        self.fill_slice(&mut le_bytes)?;
-        Ok(u16::from_le_bytes(le_bytes))
-    }
-
-    fn parse_u32(&mut self) -> Result<u32> {
-        let mut le_bytes = [0; 4];
-        self.fill_slice(&mut le_bytes)?;
-        Ok(u32::from_le_bytes(le_bytes))
-    }
-
-    fn parse_u64(&mut self) -> Result<u64> {
-        let mut le_bytes = [0; 8];
-        self.fill_slice(&mut le_bytes)?;
-        Ok(u64::from_le_bytes(le_bytes))
-    }
-
-    fn parse_u128(&mut self) -> Result<u128> {
-        let mut le_bytes = [0; 16];
-        self.fill_slice(&mut le_bytes)?;
-        Ok(u128::from_le_bytes(le_bytes))
-    }
-
-    #[allow(clippy::integer_arithmetic)]
-    fn parse_u32_from_uleb128(&mut self) -> Result<u32> {
-        let mut value: u64 = 0;
-        for shift in (0..32).step_by(7) {
-            let byte = self.next()?;
-            let digit = byte & 0x7f;
-            value |= u64::from(digit) << shift;
-            // If the highest bit of `byte` is 0, return the final value.
-            if digit == byte {
-                if shift > 0 && digit == 0 {
-                    // We only accept canonical ULEB128 encodings, therefore the
-                    // heaviest (and last) base-128 digit must be non-zero.
-                    return Err(Error::NonCanonicalUleb128Encoding);
-                }
-                // Decoded integer must not overflow.
-                return u32::try_from(value)
-                    .map_err(|_| Error::IntegerOverflowDuringUleb128Decoding);
-            }
-        }
-        // Decoded integer must not overflow.
-        Err(Error::IntegerOverflowDuringUleb128Decoding)
-    }
-
-    fn parse_length(&mut self) -> Result<usize> {
-        let len = self.parse_u32_from_uleb128()? as usize;
-        if len > crate::MAX_SEQUENCE_LENGTH {
-            return Err(Error::ExceededMaxLen(len));
-        }
-        Ok(len)
-    }
-
-    fn parse_bytes(&mut self) -> Result<&'de [u8]> {
+    fn parse_bytes_borrowed(&mut self) -> Result<&'de [u8]> {
         let len = self.parse_length()?;
         let slice = self.input.get(..len).ok_or(Error::Eof)?;
         self.input = &self.input[len..];
         Ok(slice)
-    }
-
-    fn parse_string(&mut self) -> Result<&'de str> {
-        let slice = self.parse_bytes()?;
-        std::str::from_utf8(slice).map_err(|_| Error::Utf8)
-    }
-
-    fn enter_named_container(&mut self, name: &'static str) -> Result<()> {
-        if self.max_remaining_depth == 0 {
-            return Err(Error::ExceededContainerDepthLimit(name));
-        }
-        self.max_remaining_depth -= 1;
-        Ok(())
-    }
-
-    fn leave_named_container(&mut self) {
-        self.max_remaining_depth += 1;
     }
 }
 
@@ -306,7 +233,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_borrowed_str(self.parse_string()?)
+        visitor.visit_borrowed_str(self.parse_string_borrowed()?)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
@@ -320,7 +247,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_borrowed_bytes(self.parse_bytes()?)
+        visitor.visit_borrowed_bytes(self.parse_bytes_borrowed()?)
     }
 
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
