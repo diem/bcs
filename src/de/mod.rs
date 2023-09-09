@@ -54,52 +54,63 @@ where
 }
 
 /// Deserialize a type from an implementation of [`Read`].
-pub fn from_reader<T>(mut reader: &mut impl Read) -> Result<T>
+pub fn from_reader<T>(reader: &mut impl Read) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    let mut deserializer = Deserializer::from_reader(&mut reader, crate::MAX_CONTAINER_DEPTH);
+    let mut deserializer = Deserializer::from_reader(reader, crate::MAX_CONTAINER_DEPTH);
     T::deserialize(&mut deserializer)
 }
 
-/// Deserialization implementation for BCS
-struct Deserializer<'de, R> {
-    input: R,
-    max_remaining_depth: usize,
-    _phantom: std::marker::PhantomData<&'de ()>,
+/// Deserialize a type from an implementation of [`Read`] using the provided seed
+pub fn from_reader_seed<T>(
+    seed: T,
+    reader: &mut impl Read,
+) -> Result<<T as DeserializeSeed<'_>>::Value>
+where
+    for<'a> T: DeserializeSeed<'a>,
+{
+    let mut deserializer = Deserializer::from_reader(reader, crate::MAX_CONTAINER_DEPTH);
+    seed.deserialize(&mut deserializer)
 }
 
-impl<'de, R: Read> Deserializer<'de, TeeReader<&'de mut R>> {
+/// Deserialization implementation for BCS
+struct Deserializer<R> {
+    input: R,
+    max_remaining_depth: usize,
+}
+
+impl<'de, R: Read> Deserializer<TeeReader<'de, R>> {
     fn from_reader(input: &'de mut R, max_remaining_depth: usize) -> Self {
         Deserializer {
             input: TeeReader::new(input),
             max_remaining_depth,
-            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<'de> Deserializer<'de, &'de [u8]> {
+impl<'de> Deserializer<&'de [u8]> {
     /// Creates a new `Deserializer` which will be deserializing the provided
     /// input.
     fn new(input: &'de [u8], max_remaining_depth: usize) -> Self {
         Deserializer {
             input,
             max_remaining_depth,
-            _phantom: std::marker::PhantomData,
         }
     }
 }
 
 /// A reader that can optionally capture all bytes from an underlying [`Read`]er
-struct TeeReader<R> {
-    reader: R,
+struct TeeReader<'de, R> {
+    /// the underlying reader
+    reader: &'de mut R,
+    /// If set, all bytes read from the underlying reader will be duplicated here
     capture_buffer: Option<Vec<u8>>,
 }
 
-impl<R> TeeReader<R> {
+impl<'de, R> TeeReader<'de, R> {
     /// Wrapse the provided reader in a new [`TeeReader`].
-    pub fn new(reader: R) -> Self {
+    pub fn new(reader: &'de mut R) -> Self {
         Self {
             reader,
             capture_buffer: Default::default(),
@@ -107,7 +118,7 @@ impl<R> TeeReader<R> {
     }
 }
 
-impl<R: Read> Read for TeeReader<R> {
+impl<'de, R: Read> Read for TeeReader<'de, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let bytes_read = self.reader.read(buf)?;
         if let Some(ref mut buffer) = self.capture_buffer {
@@ -211,7 +222,7 @@ trait BcsDeserializer<'de> {
     }
 }
 
-impl<'de, R: Read> Deserializer<'de, TeeReader<R>> {
+impl<'de, R: Read> Deserializer<TeeReader<'de, R>> {
     fn parse_vec(&mut self) -> Result<Vec<u8>> {
         let len = self.parse_length()?;
         let mut output = vec![0; len];
@@ -225,7 +236,7 @@ impl<'de, R: Read> Deserializer<'de, TeeReader<R>> {
     }
 }
 
-impl<'de, R: Read> BcsDeserializer<'de> for Deserializer<'de, TeeReader<R>> {
+impl<'de, R: Read> BcsDeserializer<'de> for Deserializer<TeeReader<'de, R>> {
     type MaybeBorrowedBytes = Vec<u8>;
 
     fn fill_slice(&mut self, slice: &mut [u8]) -> Result<()> {
@@ -257,7 +268,7 @@ impl<'de, R: Read> BcsDeserializer<'de> for Deserializer<'de, TeeReader<R>> {
     }
 }
 
-impl<'de> BcsDeserializer<'de> for Deserializer<'de, &'de [u8]> {
+impl<'de> BcsDeserializer<'de> for Deserializer<&'de [u8]> {
     type MaybeBorrowedBytes = &'de [u8];
     fn next(&mut self) -> Result<u8> {
         let byte = self.peek()?;
@@ -298,7 +309,7 @@ impl<'de> BcsDeserializer<'de> for Deserializer<'de, &'de [u8]> {
     }
 }
 
-impl<'de> Deserializer<'de, &'de [u8]> {
+impl<'de> Deserializer<&'de [u8]> {
     fn peek(&mut self) -> Result<u8> {
         self.input.first().copied().ok_or(Error::Eof)
     }
@@ -327,7 +338,7 @@ impl<'de> Deserializer<'de, &'de [u8]> {
     }
 }
 
-impl<'de, R> Deserializer<'de, R> {
+impl<'de, R> Deserializer<R> {
     fn enter_named_container(&mut self, name: &'static str) -> Result<()> {
         if self.max_remaining_depth == 0 {
             return Err(Error::ExceededContainerDepthLimit(name));
@@ -341,9 +352,9 @@ impl<'de, R> Deserializer<'de, R> {
     }
 }
 
-impl<'de, 'a, R> de::Deserializer<'de> for &'a mut Deserializer<'de, R>
+impl<'de, 'a, R> de::Deserializer<'de> for &'a mut Deserializer<R>
 where
-    Deserializer<'de, R>: BcsDeserializer<'de>,
+    Deserializer<R>: BcsDeserializer<'de>,
 {
     type Error = Error;
 
@@ -611,20 +622,20 @@ where
     }
 }
 
-struct SeqDeserializer<'a, 'de: 'a, R> {
-    de: &'a mut Deserializer<'de, R>,
+struct SeqDeserializer<'a, R> {
+    de: &'a mut Deserializer<R>,
     remaining: usize,
 }
 #[allow(clippy::needless_borrow)]
-impl<'a, 'de, R> SeqDeserializer<'a, 'de, R> {
-    fn new(de: &'a mut Deserializer<'de, R>, remaining: usize) -> Self {
+impl<'a, R> SeqDeserializer<'a, R> {
+    fn new(de: &'a mut Deserializer<R>, remaining: usize) -> Self {
         Self { de, remaining }
     }
 }
 
-impl<'de, 'a, R> de::SeqAccess<'de> for SeqDeserializer<'a, 'de, R>
+impl<'a, 'de, R> de::SeqAccess<'de> for SeqDeserializer<'a, R>
 where
-    Deserializer<'de, R>: BcsDeserializer<'de>,
+    Deserializer<R>: BcsDeserializer<'de>,
 {
     type Error = Error;
 
@@ -645,14 +656,14 @@ where
     }
 }
 
-struct MapDeserializer<'a, 'de: 'a, R, B> {
-    de: &'a mut Deserializer<'de, R>,
+struct MapDeserializer<'a, R, B> {
+    de: &'a mut Deserializer<R>,
     remaining: usize,
     previous_key_bytes: Option<B>,
 }
 
-impl<'a, 'de, R, B> MapDeserializer<'a, 'de, R, B> {
-    fn new(de: &'a mut Deserializer<'de, R>, remaining: usize) -> Self {
+impl<'a, R, B> MapDeserializer<'a, R, B> {
+    fn new(de: &'a mut Deserializer<R>, remaining: usize) -> Self {
         Self {
             de,
             remaining,
@@ -661,9 +672,9 @@ impl<'a, 'de, R, B> MapDeserializer<'a, 'de, R, B> {
     }
 }
 
-impl<'de, 'a, R, B: AsRef<[u8]>> de::MapAccess<'de> for MapDeserializer<'a, 'de, R, B>
+impl<'de, 'a, R, B: AsRef<[u8]>> de::MapAccess<'de> for MapDeserializer<'a, R, B>
 where
-    Deserializer<'de, R>: BcsDeserializer<'de, MaybeBorrowedBytes = B>,
+    Deserializer<R>: BcsDeserializer<'de, MaybeBorrowedBytes = B>,
 {
     type Error = Error;
 
@@ -699,9 +710,9 @@ where
     }
 }
 
-impl<'de, 'a, R> de::EnumAccess<'de> for &'a mut Deserializer<'de, R>
+impl<'de, 'a, R> de::EnumAccess<'de> for &'a mut Deserializer<R>
 where
-    Deserializer<'de, R>: BcsDeserializer<'de>,
+    Deserializer<R>: BcsDeserializer<'de>,
 {
     type Error = Error;
     type Variant = Self;
@@ -716,9 +727,9 @@ where
     }
 }
 
-impl<'de, 'a, R> de::VariantAccess<'de> for &'a mut Deserializer<'de, R>
+impl<'de, 'a, R> de::VariantAccess<'de> for &'a mut Deserializer<R>
 where
-    Deserializer<'de, R>: BcsDeserializer<'de>,
+    Deserializer<R>: BcsDeserializer<'de>,
 {
     type Error = Error;
 
