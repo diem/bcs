@@ -463,6 +463,10 @@ fn by_default_btreesets_are_serialized_as_sequences() {
 fn leftover_bytes() {
     let seq = vec![5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; // 5 extra elements
     assert_eq!(from_bytes::<Vec<u8>>(&seq), Err(Error::RemainingInput));
+    assert_eq!(
+        from_bytes_via_reader::<Vec<u8>>(&seq),
+        Err(Error::RemainingInput)
+    );
 }
 
 #[test]

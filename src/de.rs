@@ -59,7 +59,8 @@ where
     T: DeserializeOwned,
 {
     let mut deserializer = Deserializer::from_reader(reader, crate::MAX_CONTAINER_DEPTH);
-    T::deserialize(&mut deserializer)
+    let t = T::deserialize(&mut deserializer)?;
+    deserializer.end().map(move |_| t)
 }
 
 /// Deserialize a type from an implementation of [`Read`] using the provided seed
@@ -71,7 +72,8 @@ where
     for<'a> T: DeserializeSeed<'a>,
 {
     let mut deserializer = Deserializer::from_reader(reader, crate::MAX_CONTAINER_DEPTH);
-    seed.deserialize(&mut deserializer)
+    let t = seed.deserialize(&mut deserializer)?;
+    deserializer.end().map(move |_| t)
 }
 
 /// Deserialization implementation for BCS
@@ -145,6 +147,11 @@ trait BcsDeserializer<'de> {
         &mut self,
         seed: K,
     ) -> Result<(K::Value, Self::MaybeBorrowedBytes), Error>;
+
+    /// The `Deserializer::end` method should be called after a type has been
+    /// fully deserialized. This allows the `Deserializer` to validate that
+    /// the there are no more bytes remaining in the input stream.
+    fn end(&mut self) -> Result<()>;
 
     fn parse_bool(&mut self) -> Result<bool> {
         let byte = self.next()?;
@@ -266,6 +273,15 @@ impl<'de, R: Read> BcsDeserializer<'de> for Deserializer<TeeReader<'de, R>> {
         let key_bytes = self.input.capture_buffer.take().unwrap();
         Ok((key_value, key_bytes))
     }
+
+    fn end(&mut self) -> Result<()> {
+        let mut byte = [0u8; 1];
+        match self.input.read_exact(&mut byte) {
+            Ok(_) => Err(Error::RemainingInput),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 impl<'de> BcsDeserializer<'de> for Deserializer<&'de [u8]> {
@@ -307,22 +323,19 @@ impl<'de> BcsDeserializer<'de> for Deserializer<&'de [u8]> {
         let key_bytes = &previous_input_slice[..key_len];
         Ok((key_value, key_bytes))
     }
-}
 
-impl<'de> Deserializer<&'de [u8]> {
-    fn peek(&mut self) -> Result<u8> {
-        self.input.first().copied().ok_or(Error::Eof)
-    }
-
-    /// The `Deserializer::end` method should be called after a type has been
-    /// fully deserialized. This allows the `Deserializer` to validate that
-    /// the there are no more bytes remaining in the input stream.
     fn end(&mut self) -> Result<()> {
         if self.input.is_empty() {
             Ok(())
         } else {
             Err(Error::RemainingInput)
         }
+    }
+}
+
+impl<'de> Deserializer<&'de [u8]> {
+    fn peek(&mut self) -> Result<u8> {
+        self.input.first().copied().ok_or(Error::Eof)
     }
 
     fn parse_bytes(&mut self) -> Result<&'de [u8]> {
