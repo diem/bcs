@@ -13,7 +13,17 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use bcs::{from_bytes, serialized_size, to_bytes, Error, MAX_CONTAINER_DEPTH, MAX_SEQUENCE_LENGTH};
+use bcs::{
+    from_bytes, from_reader, serialized_size, to_bytes, Error, MAX_CONTAINER_DEPTH,
+    MAX_SEQUENCE_LENGTH,
+};
+
+/// A helper function to attempt deserialization via reader
+fn from_bytes_via_reader<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
+    let mut reader = std::io::Cursor::new(bytes);
+    let s_from_reader = from_reader(&mut reader)?;
+    Ok(s_from_reader)
+}
 
 fn is_same<T>(t: T)
 where
@@ -23,6 +33,9 @@ where
     let s: T = from_bytes(&bytes).unwrap();
     assert_eq!(t, s);
     assert_eq!(bytes.len(), serialized_size(&t).unwrap());
+
+    let s_from_reader = from_bytes_via_reader(&bytes).unwrap();
+    assert_eq!(t, s_from_reader);
 }
 
 // TODO deriving `Arbitrary` is currently broken for enum types
@@ -254,6 +267,10 @@ proptest! {
 fn invalid_utf8() {
     let invalid_utf8 = vec![1, 0xFF];
     assert_eq!(from_bytes::<String>(&invalid_utf8), Err(Error::Utf8));
+    assert_eq!(
+        from_bytes_via_reader::<String>(&invalid_utf8),
+        Err(Error::Utf8)
+    );
 }
 
 #[test]
@@ -266,6 +283,7 @@ fn uleb_encoding_and_variant() {
 
     let valid_variant = vec![1];
     from_bytes::<Test>(&valid_variant).unwrap();
+    from_bytes_via_reader::<Test>(&valid_variant).unwrap();
 
     let invalid_variant = vec![5];
     // Error comes from serde
@@ -275,10 +293,20 @@ fn uleb_encoding_and_variant() {
             "invalid value: integer `5`, expected variant index 0 <= i < 2".into()
         ))
     );
+    assert_eq!(
+        from_bytes_via_reader::<Test>(&invalid_variant),
+        Err(Error::Custom(
+            "invalid value: integer `5`, expected variant index 0 <= i < 2".into()
+        ))
+    );
 
     let invalid_bytes = vec![0x80, 0x80, 0x80, 0x80];
     // Error is due to EOF.
     assert_eq!(from_bytes::<Test>(&invalid_bytes), Err(Error::Eof));
+    assert_eq!(
+        from_bytes_via_reader::<Test>(&invalid_bytes),
+        Err(Error::Eof)
+    );
 
     let invalid_uleb = vec![0x80, 0x80, 0x80, 0x80, 0x80];
     // Error comes from uleb decoder because u32 are never that long.
@@ -286,11 +314,19 @@ fn uleb_encoding_and_variant() {
         from_bytes::<Test>(&invalid_uleb),
         Err(Error::IntegerOverflowDuringUleb128Decoding)
     );
+    assert_eq!(
+        from_bytes_via_reader::<Test>(&invalid_uleb),
+        Err(Error::IntegerOverflowDuringUleb128Decoding)
+    );
 
     let invalid_uleb = vec![0x80, 0x80, 0x80, 0x80, 0x1f];
     // Error comes from uleb decoder because we are truncating a larger integer into u32.
     assert_eq!(
         from_bytes::<Test>(&invalid_uleb),
+        Err(Error::IntegerOverflowDuringUleb128Decoding)
+    );
+    assert_eq!(
+        from_bytes_via_reader::<Test>(&invalid_uleb),
         Err(Error::IntegerOverflowDuringUleb128Decoding)
     );
 
@@ -302,11 +338,21 @@ fn uleb_encoding_and_variant() {
             "invalid value: integer `4026531840`, expected variant index 0 <= i < 2".into()
         ))
     );
+    assert_eq!(
+        from_bytes_via_reader::<Test>(&invalid_uleb),
+        Err(Error::Custom(
+            "invalid value: integer `4026531840`, expected variant index 0 <= i < 2".into()
+        ))
+    );
 
     let invalid_uleb = vec![0x80, 0x80, 0x80, 0x00];
     // Uleb decoder must reject non-canonical forms.
     assert_eq!(
         from_bytes::<Test>(&invalid_uleb),
+        Err(Error::NonCanonicalUleb128Encoding)
+    );
+    assert_eq!(
+        from_bytes_via_reader::<Test>(&invalid_uleb),
         Err(Error::NonCanonicalUleb128Encoding)
     );
 }
@@ -318,6 +364,10 @@ fn invalid_option() {
         from_bytes::<Option<u8>>(&invalid_option),
         Err(Error::ExpectedOption)
     );
+    assert_eq!(
+        from_bytes_via_reader::<Option<u8>>(&invalid_option),
+        Err(Error::ExpectedOption)
+    );
 }
 
 #[test]
@@ -325,6 +375,10 @@ fn invalid_bool() {
     let invalid_bool = vec![9];
     assert_eq!(
         from_bytes::<bool>(&invalid_bool),
+        Err(Error::ExpectedBoolean)
+    );
+    assert_eq!(
+        from_bytes_via_reader::<bool>(&invalid_bool),
         Err(Error::ExpectedBoolean)
     );
 }
@@ -353,6 +407,7 @@ fn variable_lengths() {
 fn sequence_not_long_enough() {
     let seq = vec![5, 1, 2, 3, 4]; // Missing 5th element
     assert_eq!(from_bytes::<Vec<u8>>(&seq), Err(Error::Eof));
+    assert_eq!(from_bytes_via_reader::<Vec<u8>>(&seq), Err(Error::Eof));
 }
 
 #[test]
@@ -361,17 +416,26 @@ fn map_not_canonical() {
     map.insert(4u8, ());
     map.insert(5u8, ());
     let seq = vec![2, 4, 5];
-    assert_eq!(from_bytes::<BTreeMap<u8, ()>>(&seq), Ok(map));
+    assert_eq!(from_bytes::<BTreeMap<u8, ()>>(&seq).as_ref(), Ok(&map));
+    assert_eq!(from_bytes_via_reader::<BTreeMap<u8, ()>>(&seq), Ok(map));
     // Make sure out-of-order keys are rejected.
     let seq = vec![2, 5, 4];
     assert_eq!(
         from_bytes::<BTreeMap<u8, ()>>(&seq),
         Err(Error::NonCanonicalMap)
     );
+    assert_eq!(
+        from_bytes_via_reader::<BTreeMap<u8, ()>>(&seq),
+        Err(Error::NonCanonicalMap)
+    );
     // Make sure duplicate keys are rejected.
     let seq = vec![2, 5, 5];
     assert_eq!(
         from_bytes::<BTreeMap<u8, ()>>(&seq),
+        Err(Error::NonCanonicalMap)
+    );
+    assert_eq!(
+        from_bytes_via_reader::<BTreeMap<u8, ()>>(&seq),
         Err(Error::NonCanonicalMap)
     );
 }
@@ -385,11 +449,14 @@ fn by_default_btreesets_are_serialized_as_sequences() {
     set.insert(5u8);
     let seq = vec![2, 4, 5];
     assert_eq!(from_bytes::<BTreeSet<u8>>(&seq), Ok(set.clone()));
+    assert_eq!(from_bytes_via_reader::<BTreeSet<u8>>(&seq), Ok(set.clone()));
     let seq = vec![2, 5, 4];
     assert_eq!(from_bytes::<BTreeSet<u8>>(&seq), Ok(set.clone()));
+    assert_eq!(from_bytes_via_reader::<BTreeSet<u8>>(&seq), Ok(set.clone()));
     // Duplicate keys are just ok.
     let seq = vec![3, 5, 5, 4];
-    assert_eq!(from_bytes::<BTreeSet<u8>>(&seq), Ok(set));
+    assert_eq!(from_bytes::<BTreeSet<u8>>(&seq).as_ref(), Ok(&set));
+    assert_eq!(from_bytes_via_reader::<BTreeSet<u8>>(&seq), Ok(set));
 }
 
 #[test]
@@ -457,12 +524,25 @@ fn cow() {
             Message::M1(b) => assert_eq!(b.into_owned(), large_object),
             _ => panic!(),
         }
+
+        let deserialized: Message<'static> = from_bytes_via_reader(&serialized).unwrap();
+
+        match deserialized {
+            Message::M1(b) => assert_eq!(b.into_owned(), large_object),
+            _ => panic!(),
+        }
     }
 
     // M2
     {
         let serialized = to_bytes(&Message::M2(Cow::Borrowed(&large_map))).unwrap();
         let deserialized: Message<'static> = from_bytes(&serialized).unwrap();
+
+        match deserialized {
+            Message::M2(b) => assert_eq!(b.into_owned(), large_map),
+            _ => panic!(),
+        }
+        let deserialized: Message<'static> = from_bytes_via_reader(&serialized).unwrap();
 
         match deserialized {
             Message::M2(b) => assert_eq!(b.into_owned(), large_map),
@@ -480,6 +560,9 @@ fn strbox() {
     let deserialized: Cow<'static, String> = from_bytes(&serialized).unwrap();
     let stringx: String = deserialized.into_owned();
     assert_eq!(strx, stringx);
+    let deserialized: Cow<'static, String> = from_bytes_via_reader(&serialized).unwrap();
+    let stringx: String = deserialized.into_owned();
+    assert_eq!(strx, stringx);
 }
 
 #[test]
@@ -495,6 +578,14 @@ fn slicebox() {
     }
     let vecx: Vec<u32> = deserialized.into_owned();
     assert_eq!(slice, vecx[..]);
+
+    let deserialized: Cow<'static, Vec<u32>> = from_bytes_via_reader(&serialized).unwrap();
+    {
+        let sb: &[u32] = &deserialized;
+        assert_eq!(slice, sb);
+    }
+    let vecx: Vec<u32> = deserialized.into_owned();
+    assert_eq!(slice, vecx[..]);
 }
 
 #[test]
@@ -504,6 +595,9 @@ fn path_buf() {
     let path = Path::new("foo").to_path_buf();
     let encoded = to_bytes(&path).unwrap();
     let decoded: PathBuf = from_bytes(&encoded).unwrap();
+    assert!(path.to_str() == decoded.to_str());
+
+    let decoded: PathBuf = from_bytes_via_reader(&encoded).unwrap();
     assert!(path.to_str() == decoded.to_str());
 }
 
@@ -567,6 +661,9 @@ fn serde_known_vector() {
     // make sure we can deserialize the test vector into expected struct
     let deserialized_foo: Foo = from_bytes(&test_vector).unwrap();
     assert_eq!(f, deserialized_foo);
+
+    let deserialized_foo: Foo = from_bytes_via_reader(&test_vector).unwrap();
+    assert_eq!(f, deserialized_foo);
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
@@ -618,10 +715,12 @@ fn test_recursion_limit() {
         ]
     );
     assert_eq!(from_bytes::<List<_>>(&b1).unwrap(), l1);
+    assert_eq!(from_bytes_via_reader::<List<_>>(&b1).unwrap(), l1);
 
     let l2 = List::integers(MAX_CONTAINER_DEPTH - 1);
     let b2 = to_bytes(&l2).unwrap();
     assert_eq!(from_bytes::<List<_>>(&b2).unwrap(), l2);
+    assert_eq!(from_bytes_via_reader::<List<_>>(&b2).unwrap(), l2);
     let l3 = List::integers(MAX_CONTAINER_DEPTH);
     assert_eq!(
         to_bytes(&l3),
@@ -633,10 +732,18 @@ fn test_recursion_limit() {
         from_bytes::<List<usize>>(&b3),
         Err(Error::ExceededContainerDepthLimit("List"))
     );
+    assert_eq!(
+        from_bytes_via_reader::<List<usize>>(&b3),
+        Err(Error::ExceededContainerDepthLimit("List"))
+    );
 
     let b2_pair = to_bytes(&(&l2, &l2)).unwrap();
     assert_eq!(
         from_bytes::<(List<_>, List<_>)>(&b2_pair).unwrap(),
+        (l2.clone(), l2.clone())
+    );
+    assert_eq!(
+        from_bytes_via_reader::<(List<_>, List<_>)>(&b2_pair).unwrap(),
         (l2.clone(), l2.clone())
     );
     assert_eq!(
@@ -663,10 +770,12 @@ fn test_recursion_limit_enum() {
     let b1 = to_bytes(&l1).unwrap();
     assert_eq!(b1, vec![0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0],);
     assert_eq!(from_bytes::<List<_>>(&b1).unwrap(), l1);
+    assert_eq!(from_bytes_via_reader::<List<_>>(&b1).unwrap(), l1);
 
     let l2 = List::repeat(MAX_CONTAINER_DEPTH - 2, EnumA::ValueA);
     let b2 = to_bytes(&l2).unwrap();
     assert_eq!(from_bytes::<List<_>>(&b2).unwrap(), l2);
+    assert_eq!(from_bytes_via_reader::<List<_>>(&b2).unwrap(), l2);
 
     let l3 = List::repeat(MAX_CONTAINER_DEPTH - 1, EnumA::ValueA);
     assert_eq!(
@@ -677,6 +786,10 @@ fn test_recursion_limit_enum() {
     b3.extend(b2);
     assert_eq!(
         from_bytes::<List<EnumA>>(&b3),
+        Err(Error::ExceededContainerDepthLimit("EnumA"))
+    );
+    assert_eq!(
+        from_bytes_via_reader::<List<EnumA>>(&b3),
         Err(Error::ExceededContainerDepthLimit("EnumA"))
     );
 }

@@ -8,4 +8,8 @@ where
     let bytes = crate::to_bytes(&t).unwrap();
     let s: T = crate::from_bytes(&bytes).unwrap();
     assert_eq!(t, s);
+
+    let mut reader = std::io::Cursor::new(bytes);
+    let s_from_reader = crate::from_reader(&mut reader).unwrap();
+    assert_eq!(t, s_from_reader);
 }
