@@ -351,7 +351,7 @@ impl<'de> Deserializer<&'de [u8]> {
     }
 }
 
-impl<'de, R> Deserializer<R> {
+impl<R> Deserializer<R> {
     fn enter_named_container(&mut self, name: &'static str) -> Result<()> {
         if self.max_remaining_depth == 0 {
             return Err(Error::ExceededContainerDepthLimit(name));
