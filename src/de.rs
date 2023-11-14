@@ -54,7 +54,7 @@ where
 }
 
 /// Deserialization implementation for BCS
-struct Deserializer<'de> {
+pub struct Deserializer<'de> {
     input: &'de [u8],
     max_remaining_depth: usize,
 }
@@ -62,7 +62,7 @@ struct Deserializer<'de> {
 impl<'de> Deserializer<'de> {
     /// Creates a new `Deserializer` which will be deserializing the provided
     /// input.
-    fn new(input: &'de [u8], max_remaining_depth: usize) -> Self {
+    pub fn new(input: &'de [u8], max_remaining_depth: usize) -> Self {
         Deserializer {
             input,
             max_remaining_depth,
