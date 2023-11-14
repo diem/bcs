@@ -98,7 +98,7 @@ pub fn is_human_readable() -> bool {
 }
 
 /// Serialization implementation for BCS
-struct Serializer<'a, W: ?Sized> {
+pub struct Serializer<'a, W: ?Sized> {
     output: &'a mut W,
     max_remaining_depth: usize,
 }
@@ -108,7 +108,7 @@ where
     W: ?Sized + std::io::Write,
 {
     /// Creates a new `Serializer` which will emit BCS.
-    fn new(output: &'a mut W, max_remaining_depth: usize) -> Self {
+    pub fn new(output: &'a mut W, max_remaining_depth: usize) -> Self {
         Self {
             output,
             max_remaining_depth,
@@ -437,8 +437,7 @@ where
     }
 }
 
-#[doc(hidden)]
-struct MapSerializer<'a, W: ?Sized> {
+pub struct MapSerializer<'a, W: ?Sized> {
     serializer: Serializer<'a, W>,
     entries: Vec<(Vec<u8>, Vec<u8>)>,
     next_key: Option<Vec<u8>>,
